@@ -1,9 +1,5 @@
 // fork from : https://github.com/yuki-xin/picgo-plugin-web-uploader
 
-// const logger = require('@varnxy/logger')
-// logger.setDirectory('/Users/zhang/Work/WorkSpaces/WebWorkSpace/picgo-plugin-gitlab/logs')
-// let log = logger('plugin')
-
 module.exports = (ctx) => {
   const register = () => {
     ctx.helper.uploader.register('gitee', {
@@ -21,10 +17,10 @@ module.exports = (ctx) => {
     const owner = userConfig.owner
     const repo = userConfig.repo
     const path = userConfig.path
-    const token = userConfig.Token
+    const token = userConfig.token
     const message = userConfig.message
-    const realImgUrlPre = baseUrl + owner + '/' + repo + '/raw/master/' + path
-    const realUrl = baseUrl + 'api/v5/repos/' + owner + '/' + repo + '/contents/' + path
+    const realImgUrlPre = baseUrl + '/' + owner + '/' + repo + '/raw/master/' + path
+    const realUrl = baseUrl + '/api/v5/repos/' + owner + '/' + repo + '/contents/' + path
 
     try {
       let imgList = ctx.output
@@ -34,14 +30,18 @@ module.exports = (ctx) => {
           image = Buffer.from(imgList[i].base64Image, 'base64')
         }
 
-        const postConfig = postOptions(realUrl, token, image, message)
+        let perRealUrl = realUrl + '/' + imgList[i].fileName
+        const postConfig = postOptions(perRealUrl, token, image, message)
+        // post config log
+        ctx.log.info(JSON.stringify(postConfig))
         let body = await ctx.Request.request(postConfig)
         delete imgList[i].base64Image
         delete imgList[i].buffer
         body = JSON.parse(body)
-        imgList[i]['imgUrl'] = realImgUrlPre + body['url']
+        imgList[i]['imgUrl'] = realImgUrlPre + '/' + imgList[i].fileName
       }
     } catch (err) {
+      // ctx.log.info(JSON.stringify(err))
       ctx.emit('notification', {
         title: '上传失败',
         body: JSON.stringify(err)
@@ -55,9 +55,9 @@ module.exports = (ctx) => {
       'User-Agent': 'PicGo'
     }
     let formData = {
-      "access_token": token,
-      "content": image,
-      "message": message | ''
+      'access_token': token,
+      'content': image.toString('base64'),
+      'message': message || ''
     }
     const opts = {
       method: 'POST',
@@ -75,12 +75,12 @@ module.exports = (ctx) => {
     }
     return [
       {
-        name: 'URL',
+        name: 'url',
         type: 'input',
-        default: userConfig.URL,
+        default: userConfig.url,
         required: true,
         message: 'https://gitee.com',
-        alias: 'URL'
+        alias: 'url'
       },
       {
         name: 'owner',
@@ -97,6 +97,14 @@ module.exports = (ctx) => {
         required: true,
         message: 'repo',
         alias: 'repo'
+      },
+      {
+        name: 'path',
+        type: 'input',
+        default: userConfig.path,
+        required: true,
+        message: 'path',
+        alias: 'path'
       },
       {
         name: 'token',
@@ -118,8 +126,6 @@ module.exports = (ctx) => {
   }
   return {
     uploader: 'gitee',
-    // transformer: 'gitlab',
-    // config: config,
     register
 
   }
