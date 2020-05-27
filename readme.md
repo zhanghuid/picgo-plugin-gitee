@@ -16,7 +16,10 @@ npm i picgo-plugin-gitee
 - path: img path in response json (eg:url or data.url)
 - message: gitee commit message
 
-> gitee文件大小有1mb限制, 所以超过1mb的文件无法通过外链获取
+### Feature
+- support sync gitee file delete
+
+**gitee文件大小有1mb限制, 所以超过1mb的文件无法通过外链获取**
 
 
 
