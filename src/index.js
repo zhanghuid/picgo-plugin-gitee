@@ -1,26 +1,44 @@
-// fork from : https://github.com/yuki-xin/picgo-plugin-web-uploader
+
+const uploadedName = 'gitee'
+const domain = 'https://gitee.com'
+const urlParser = require('url')
 
 module.exports = (ctx) => {
   const register = () => {
-    ctx.helper.uploader.register('gitee', {
+    ctx.helper.uploader.register(uploadedName, {
       handle,
       name: 'Gitee图床',
       config: config
     })
+
+    ctx.on('remove', onRemove)
   }
-  const handle = async function (ctx) {
+
+  const getHeaders = function () {
+    return {
+      contentType: 'application/json;charset=UTF-8',
+      'User-Agent': 'PicGo'
+    }
+  }
+
+  const getUserConfig = function () {
     let userConfig = ctx.getConfig('picBed.gitee')
+
     if (!userConfig) {
       throw new Error('Can\'t find uploader config')
     }
-    const baseUrl = userConfig.url
-    const owner = userConfig.owner
-    const repo = userConfig.repo
-    const path = userConfig.path
-    const token = userConfig.token
-    const message = userConfig.message
-    const realImgUrlPre = baseUrl + '/' + owner + '/' + repo + '/raw/master/' + path
-    const realUrl = baseUrl + '/api/v5/repos/' + owner + '/' + repo + '/contents/' + path
+
+    userConfig['baseUrl'] = domain + '/api/v5/repos/' + userConfig.owner + '/' + userConfig.repo
+    userConfig['previewUrl'] = domain + '/' + userConfig.owner + '/' + userConfig.repo + '/raw/master/' + userConfig.path
+
+    return userConfig
+  }
+
+  // uploader
+  const handle = async function (ctx) {
+    let userConfig = getUserConfig()
+
+    const realUrl = userConfig.baseUrl + '/contents/' + userConfig.path
 
     try {
       let imgList = ctx.output
@@ -31,17 +49,19 @@ module.exports = (ctx) => {
         }
 
         let perRealUrl = realUrl + '/' + imgList[i].fileName
-        const postConfig = postOptions(perRealUrl, token, image, message)
+        const postConfig = postOptions(perRealUrl, image)
         // post config log
-        ctx.log.info(JSON.stringify(postConfig))
+        // ctx.log.info(JSON.stringify(postConfig))
         let body = await ctx.Request.request(postConfig)
         delete imgList[i].base64Image
         delete imgList[i].buffer
         body = JSON.parse(body)
-        imgList[i]['imgUrl'] = realImgUrlPre + '/' + imgList[i].fileName
+        imgList[i]['imgUrl'] = userConfig.previewUrl + '/' + imgList[i].fileName
       }
     } catch (err) {
-      // ctx.log.info(JSON.stringify(err))
+      // log error message
+      ctx.log.info(JSON.stringify(err))
+
       ctx.emit('notification', {
         title: '上传失败',
         body: JSON.stringify(err)
@@ -49,23 +69,103 @@ module.exports = (ctx) => {
     }
   }
 
-  const postOptions = (url, token, image, message) => {
-    let headers = {
-      contentType: 'application/json;charset=UTF-8',
-      'User-Agent': 'PicGo'
-    }
+  const postOptions = (url, image) => {
+    let config = getUserConfig()
+    let headers = getHeaders()
     let formData = {
-      'access_token': token,
+      'access_token': config.token,
       'content': image.toString('base64'),
-      'message': message || ''
+      'message': config.message || ''
     }
     const opts = {
       method: 'POST',
-      url: url,
+      url: encodeURI(url),
       headers: headers,
       formData: formData
     }
     return opts
+  }
+
+  // trigger delete file
+  const onRemove = async function (files) {
+    // log requsest params
+    const rms = files.filter(each => each.type === uploadedName)
+    if (rms.length === 0) {
+      return
+    }
+    const fail = []
+    for (let i = 0; i < rms.length; i++) {
+      const each = rms[i]
+      // delete gitee file
+      deleteFile(rms[i].imgUrl).catch((err) => {
+        ctx.log.info(JSON.stringify(err))
+        fail.push(each)
+      })
+    }
+
+    if (fail.length) {
+      const uploaded = ctx.getConfig('uploaded')
+      uploaded.unshift(...fail)
+      ctx.saveConfig(uploaded)
+    }
+
+    ctx.emit('notification', {
+      title: '删除提示',
+      body: fail.length === 0 ? '成功同步删除' : `删除失败${fail.length}个`
+    })
+  }
+
+  const getfilePath = function (url) {
+    let pathInfo = urlParser.parse(url)
+    let baseUrl = pathInfo.protocol + '//' + pathInfo.host
+    let urlStr = url.replace(baseUrl, baseUrl + '/api/v5/repos')
+    return urlStr.replace('raw/master', 'contents')
+  }
+
+  // delete file
+  const deleteFile = async function (name) {
+    let headers = getHeaders()
+    let config = getUserConfig()
+    let filepath = getfilePath(name)
+    let sha = await getSha(filepath).catch((err) => {
+      ctx.log.info(JSON.stringify(err))
+    })
+
+    let url = `${filepath}` + `?access_token=${config.token}` +
+        `&message=${config.message}` +
+        `&sha=${sha}`
+    ctx.log.info(url)
+    const opts = {
+      method: 'DELETE',
+      url: encodeURI(url),
+      headers: headers
+    }
+
+    // log requsest params
+    let res = await ctx.Request.request(opts)
+    res = JSON.parse(res)
+    return res
+  }
+
+  const getSha = async function (filepath) {
+    let config = getUserConfig()
+    let headers = {
+      contentType: 'application/json;charset=UTF-8',
+      'User-Agent': 'PicGo'
+    }
+    let url = `${filepath}` + `?access_token=${config.token}`
+
+    ctx.log.info(url)
+    const opts = {
+      method: 'GET',
+      url: url,
+      headers: headers
+    }
+
+    let res = await ctx.Request.request(opts)
+    let tmp = JSON.parse(res)
+    ctx.log.info(tmp.sha)
+    return tmp.sha
   }
 
   const config = ctx => {
@@ -74,14 +174,14 @@ module.exports = (ctx) => {
       userConfig = {}
     }
     return [
-      {
-        name: 'url',
-        type: 'input',
-        default: userConfig.url,
-        required: true,
-        message: 'https://gitee.com',
-        alias: 'url'
-      },
+      // {
+      //   name: 'url',
+      //   type: 'input',
+      //   default: userConfig.url,
+      //   required: true,
+      //   message: 'https://gitee.com',
+      //   alias: 'url'
+      // },
       {
         name: 'owner',
         type: 'input',
@@ -102,8 +202,8 @@ module.exports = (ctx) => {
         name: 'path',
         type: 'input',
         default: userConfig.path,
-        required: true,
-        message: 'path',
+        required: false,
+        message: 'path;根目录可不用填',
         alias: 'path'
       },
       {
@@ -127,6 +227,5 @@ module.exports = (ctx) => {
   return {
     uploader: 'gitee',
     register
-
   }
 }
