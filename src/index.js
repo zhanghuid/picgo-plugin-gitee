@@ -2,6 +2,7 @@
 const uploadedName = 'gitee'
 const domain = 'https://gitee.com'
 const urlParser = require('url')
+const defaultMsg = 'picgo commit'
 
 module.exports = (ctx) => {
   const register = () => {
@@ -75,7 +76,7 @@ module.exports = (ctx) => {
     let formData = {
       'access_token': config.token,
       'content': image.toString('base64'),
-      'message': config.message || ''
+      'message': config.message || defaultMsg
     }
     const opts = {
       method: 'POST',
@@ -219,7 +220,7 @@ module.exports = (ctx) => {
         type: 'input',
         default: userConfig.message,
         required: false,
-        message: '测试',
+        message: defaultMsg,
         alias: 'message'
       }
     ]
