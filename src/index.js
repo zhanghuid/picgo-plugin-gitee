@@ -30,7 +30,7 @@ module.exports = (ctx) => {
     }
 
     userConfig['baseUrl'] = domain + '/api/v5/repos/' + userConfig.owner + '/' + userConfig.repo
-    userConfig['previewUrl'] = domain + '/' + userConfig.owner + '/' + userConfig.repo + '/raw/master/' + userConfig.path
+    userConfig['previewUrl'] = domain + '/' + userConfig.owner + '/' + userConfig.repo + '/raw/master' + formatConfigPath(userConfig)
 
     return userConfig
   }
@@ -39,7 +39,7 @@ module.exports = (ctx) => {
   const handle = async function (ctx) {
     let userConfig = getUserConfig()
 
-    const realUrl = userConfig.baseUrl + '/contents/' + userConfig.path
+    const realUrl = userConfig.baseUrl + '/contents' + formatConfigPath(userConfig)
 
     try {
       let imgList = ctx.output
@@ -167,6 +167,10 @@ module.exports = (ctx) => {
     let tmp = JSON.parse(res)
     ctx.log.info(tmp.sha)
     return tmp.sha
+  }
+
+  const formatConfigPath = function (userConfig) {
+    return userConfig.path ? '/' + userConfig.path : ''
   }
 
   const config = ctx => {
