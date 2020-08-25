@@ -19,7 +19,10 @@ npm i picgo-plugin-gitee
 ### Feature
 - support sync gitee file delete
 
+### Todo
+
+- [ ] create if remote branch not exists
+- [ ] trim / delimiter
+
+
 **gitee文件大小有1mb限制, 所以超过1mb的文件无法通过外链获取**
-
-
-
