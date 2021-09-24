@@ -142,7 +142,7 @@ module.exports = (ctx) => {
       headers: headers
     }
 
-    // log requsest params
+    // log request params
     let res = await ctx.Request.request(opts)
     res = JSON.parse(res)
     return res
@@ -159,7 +159,7 @@ module.exports = (ctx) => {
     ctx.log.info(url)
     const opts = {
       method: 'GET',
-      url: url,
+      url: encodeURI(url),
       headers: headers
     }
 

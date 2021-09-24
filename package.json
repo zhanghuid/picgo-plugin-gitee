@@ -1,6 +1,6 @@
 {
   "name": "picgo-plugin-gitee",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "picgo uploader for gitee",
   "main": "src/index.js",
   "publishConfig": {
