@@ -93,10 +93,6 @@ module.exports = (ctx) => {
     return message.indexOf("A file with this name already exists") != -1;
   };
 
-  const checkIsFileExist = (message) => {
-    return message.indexOf("A file with this name doesn't exist") != -1;
-  };
-
   const postOptions = (url, image) => {
     let config = getUserConfig();
     let headers = getHeaders();
