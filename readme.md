@@ -1,3 +1,7 @@
+# 重要通知
+  Recently Gitee has not allowed repo to be used as personal website, so please refer to # 11 and do your new plan.
+  最近 gitee 不允许仓库作为个人图床，请参考 #11，做好相应的处理。
+
 # picgo-plugin-gitee
 
 PicGo Uploader For Gitee
