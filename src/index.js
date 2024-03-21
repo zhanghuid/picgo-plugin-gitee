@@ -17,7 +17,6 @@ module.exports = (ctx) => {
   const getHeaders = function () {
     return {
       "Content-Type": "application/json;charset=UTF-8",
-      "User-Agent": "PicGo",
     };
   };
 
