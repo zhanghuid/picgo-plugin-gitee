@@ -1,10 +1,10 @@
 # 重要通知
 **Recently Gitee has not allowed repo to be used as personal website, so please refer to #11 and do your new plan. <br>
-最近 gitee 不允许仓库作为个人图床，请参考 #11，做好相应的处理。**
+最近 gitee 不允许仓库作为个人图床，请参考 [#11](https://github.com/zhanghuid/picgo-plugin-gitee/issues/11)，做好相应的处理。**
 
 # picgo-plugin-gitee
 
-PicGo Uploader For Gitee
+plugin for [PicGo](https://github.com/Molunerfinn/PicGo)
 
 ### Install
 
