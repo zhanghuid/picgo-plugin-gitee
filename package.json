@@ -1,6 +1,6 @@
 {
   "name": "picgo-plugin-gitee",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "picgo uploader for gitee",
   "main": "src/index.js",
   "publishConfig": {
@@ -29,6 +29,5 @@
     "eslint-plugin-standard": "^3.1.0",
     "@varnxy/logger": "^1.1.2"
   },
-  "dependencies": {
-  }
+  "dependencies": {}
 }
