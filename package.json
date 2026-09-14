@@ -1,17 +1,37 @@
 {
   "name": "picgo-plugin-gitee",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "description": "picgo uploader for gitee",
   "main": "src/index.js",
+  "files": [
+    "src/**/*",
+    "readme.md",
+    "LICENSE"
+  ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "homepage": "https://github.com/zhanghuid/picgo-plugin-gitee",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhanghuid/picgo-plugin-gitee.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zhanghuid/picgo-plugin-gitee/issues"
+  },
   "scripts": {
+    "lint": "eslint src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "patch": "npm version patch && git push origin master && git push origin --tags",
-    "minor": "npm version minor && git push origin master && git push origin --tags",
-    "major": "npm version major && git push origin master && git push origin --tags"
+    "bump": "bumpp --commit \"chore(release): v%s\"",
+    "bump:patch": "bumpp patch --commit \"chore(release): v%s\"",
+    "bump:minor": "bumpp minor --commit \"chore(release): v%s\"",
+    "bump:major": "bumpp major --commit \"chore(release): v%s\"",
+    "release": "npm run bump && npm publish",
+    "release:patch": "npm run bump:patch && npm publish",
+    "release:minor": "npm run bump:minor && npm publish",
+    "release:major": "npm run bump:major && npm publish",
+    "prepublishOnly": "node --check src/index.js"
   },
   "keywords": [
     "picgo",
@@ -21,13 +41,13 @@
   "author": "zhanghuid",
   "license": "MIT",
   "devDependencies": {
+    "@varnxy/logger": "^1.1.2",
+    "bumpp": "^12.3.0",
     "eslint": "^5.0.1",
     "eslint-config-standard": "^11.0.0",
     "eslint-plugin-import": "^2.13.0",
     "eslint-plugin-node": "^6.0.1",
     "eslint-plugin-promise": "^3.8.0",
-    "eslint-plugin-standard": "^3.1.0",
-    "@varnxy/logger": "^1.1.2"
-  },
-  "dependencies": {}
+    "eslint-plugin-standard": "^3.1.0"
+  }
 }
