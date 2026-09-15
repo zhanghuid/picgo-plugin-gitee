@@ -46,6 +46,7 @@ git push -u origin master
 ### Feature
 - support sync gitee file delete
 - 上传/删除结束均会弹出系统通知（PicGo 消息中心）
+- GUI 菜单提供「从 Gitee 同步远程文件到相册」按钮（递归仓库所有图片，自动跳过非图片文件）
 
 ### Todo
 

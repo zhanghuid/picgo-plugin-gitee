@@ -18,6 +18,279 @@ module.exports = (ctx) => {
     ctx.on("remove", onRemove);
   };
 
+  // GUI 菜单项：手动触发"从 Gitee 拉取远程文件到相册"
+  const guiMenu = (ctx) => {
+    return [
+      {
+        label: "同步 Gitee 远程文件到相册",
+        async handle(ctx, guiApi) {
+          // picgo GUI 有时会把 async handle 里的异常静默吞掉。
+          // 手动加 try/catch 确保任何错误都能反馈到 UI 和日志。
+          const started = Date.now();
+          log("info", "[同步]按钮被点击");
+          log("info", `[同步]ctx 类型: ${typeof ctx}, guiApi 类型: ${typeof guiApi}`);
+          log(
+            "info",
+            `[同步]guiApi.galleryDB: ${guiApi && !!guiApi.galleryDB}, guiApi.showNotification: ${guiApi && !!guiApi.showNotification}`
+          );
+          try {
+            await syncRemoteToGallery(ctx, guiApi);
+            log("success", `[同步]完成，耗时 ${Date.now() - started}ms`);
+          } catch (err) {
+            const msg = err && err.message ? err.message : String(err);
+            const stack = err && err.stack ? err.stack : "";
+            log("error", "[同步]失败：" + msg);
+            if (stack) log("error", stack);
+            // 通道 1：ctx.emit('notification') — PicGo 主窗口消息中心（最可靠）
+            try {
+              if (ctx && ctx.emit) {
+                ctx.emit("notification", {
+                  title: "Gitee 同步失败",
+                  body: msg,
+                });
+              }
+            } catch (e) {
+              log("error", "[同步]ctx.emit 失败：" + e.message);
+            }
+            // 通道 2：showMessageBox — 系统弹窗，最醒目
+            if (guiApi && guiApi.showMessageBox) {
+              try {
+                guiApi.showMessageBox({
+                  type: "error",
+                  title: "Gitee 同步失败",
+                  message: msg,
+                  detail: stack ? stack.split("\n").slice(0, 3).join("\n") : "",
+                });
+              } catch (e) {
+                log("error", "[同步]showMessageBox 失败：" + e.message);
+              }
+            }
+            // 通道 3：showNotification — 系统通知（依赖 OS 权限）
+            if (guiApi && guiApi.showNotification) {
+              try {
+                guiApi.showNotification({
+                  title: "Gitee 同步失败",
+                  body: msg,
+                });
+              } catch (e) {
+                log("error", "[同步]showNotification 失败：" + e.message);
+              }
+            }
+          }
+        },
+      },
+    ];
+  };
+
+  // 统一的日志输出，兼容 picgo-core (ctx.log.info) 和 picgo GUI (ctx.log 可能行为不同)
+  // 同时打 console 兜底，确保 Electron 主进程也能看到
+  const log = function (level, msg) {
+    try {
+      // picgo 的 ctx.log 支持 info / warn / success / error
+      const fn = ctx.log && (ctx.log[level] || ctx.log.info);
+      if (fn) fn.call(ctx.log, msg);
+    } catch (e) {
+      // 静吞
+    }
+    // 兜底：直接打到 stdout，这样无论 picgo GUI 把日志写到哪，这里都至少有一条记录
+    // （用户终端如果通过 npm 链接加载插件，能看到；GUI 主进程 console 也能看到）
+    if (typeof console !== "undefined") {
+      try {
+        console.log("[picgo-plugin-gitee]", level.toUpperCase(), msg);
+      } catch (e) {
+        // 静吞
+      }
+    }
+  };
+
+  // 相册里只保留图片文件，避免把 README/配置文件等也拉进来
+  const IMAGE_EXTS = new Set([
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg",
+    "tif", "tiff", "ico", "avif", "heic",
+  ]);
+
+  // 递归列出 Gitee 仓库所有图片文件（含子目录）。
+  // 返回 [{ fileName, imgUrl, sha, size }]
+  const listAllRemoteFiles = async function (userConfig) {
+    const headers = getHeaders();
+    const listUrl =
+      userConfig.baseUrl + "/contents" + formatConfigPath(userConfig);
+    const out = [];
+    await walkContents(listUrl, userConfig, headers, out);
+    return out
+      .filter((it) => {
+        const ext = (it.name || "").split(".").pop().toLowerCase();
+        return IMAGE_EXTS.has(ext);
+      })
+      .map((it) => ({
+        fileName: it.path,
+        imgUrl: userConfig.previewUrl + "/" + it.path,
+        sha: it.sha,
+        size: it.size,
+      }));
+  };
+
+  const walkContents = async function (url, userConfig, headers, out) {
+    const fullUrl = url + "?access_token=" + userConfig.token;
+    let res;
+    try {
+      res = await ctx.Request.request({
+        method: "GET",
+        url: fullUrl,
+        headers: headers,
+      });
+    } catch (err) {
+      throw new Error("获取 Gitee 目录失败：" + err.message);
+    }
+    // 兼容 picgo-core（字符串）和 picgo GUI（对象）
+    const items = typeof res === "string" ? JSON.parse(res) : res;
+    if (!Array.isArray(items)) {
+      // 单文件（理论上 listAllRemoteFiles 不会传单文件路径，兜底）
+      if (items && items.type === "file") {
+        out.push(items);
+      }
+      return;
+    }
+    for (const item of items) {
+      if (item.type === "file") {
+        out.push(item);
+      } else if (item.type === "dir") {
+        // 递归子目录
+        await walkContents(url + "/" + item.path, userConfig, headers, out);
+      }
+    }
+  };
+
+  // 把 Gitee 远程文件写入 PicGo GUI 相册。
+  // 关键点：每条记录带 type="gitee"，这样从相册删除时会触发 onRemove 真正删除 gitee 上的文件。
+  // 异常统一向上抛出，由 guiMenu.handle 里的 catch 统一弹窗。
+  const syncRemoteToGallery = async function (ctx, guiApi) {
+    if (!guiApi || !guiApi.galleryDB) {
+      throw new Error("当前不在 PicGo GUI 环境（galleryDB 不可用）");
+    }
+    log("info", "[同步]开始检查配置");
+    let userConfig;
+    try {
+      userConfig = getUserConfig();
+    } catch (err) {
+      throw new Error("请先在插件设置中填写 owner / repo / token");
+    }
+    if (!userConfig.owner || !userConfig.repo || !userConfig.token) {
+      throw new Error("请先在插件设置中填写 owner / repo / token");
+    }
+    log(
+      "info",
+      `[同步]配置 OK: owner=${userConfig.owner} repo=${userConfig.repo} path=${userConfig.path || "(root)"}`
+    );
+
+    notify("success", ctx, guiApi, "正在同步", "正在从 Gitee 拉取远程文件...");
+
+    log("info", "[同步]开始递归拉取 Gitee 文件列表");
+    const remoteFiles = await listAllRemoteFiles(userConfig);
+    log("info", `[同步]仓库共 ${remoteFiles.length} 个图片文件`);
+
+    if (remoteFiles.length === 0) {
+      log("warn", "[同步]仓库里没有任何图片文件");
+      notify(
+        "success",
+        ctx,
+        guiApi,
+        "Gitee 同步完成",
+        "仓库里没有任何图片文件"
+      );
+      return;
+    }
+
+    log("info", "[同步]读取本地相册");
+    // galleryDB.get() 返回 { total, data }（picgo/store 格式），
+    // 也可能直接返回数组（早期版本兼容）。两种都处理。
+    const getResult = await guiApi.galleryDB.get();
+    const existing = Array.isArray(getResult)
+      ? getResult
+      : getResult && Array.isArray(getResult.data)
+      ? getResult.data
+      : [];
+    log("info", `[同步]本地相册已有 ${existing.length} 条`);
+    const existingUrls = new Set(existing.map((x) => x.imgUrl));
+    const newItems = remoteFiles
+      .filter((f) => !existingUrls.has(f.imgUrl))
+      .map((f) => ({
+        fileName: f.fileName,
+        imgUrl: f.imgUrl,
+        type: uploadedName,
+        sha: f.sha,
+        extname: f.fileName.split(".").pop(),
+      }));
+    log(
+      "info",
+      `[同步]需要新增 ${newItems.length} 条（已存在 ${remoteFiles.length - newItems.length} 条）`
+    );
+
+    if (newItems.length === 0) {
+      notify(
+        "success",
+        ctx,
+        guiApi,
+        "Gitee 同步完成",
+        "没有新增文件，相册已是最新"
+      );
+      return;
+    }
+
+    log("info", "[同步]写入相册 insertMany");
+    await guiApi.galleryDB.insertMany(newItems);
+    log(
+      "success",
+      `[同步]完成：共 ${remoteFiles.length} 个，新增 ${newItems.length} 个`
+    );
+    notify(
+      "success",
+      ctx,
+      guiApi,
+      "Gitee 同步完成",
+      `新增 ${newItems.length} 个文件到相册（共发现 ${remoteFiles.length} 个）`
+    );
+  };
+
+  // 多通道通知：根据场景选用合适的通道。
+  // picgo 文档说明：ctx.emit('notification') 是给**失败**提示专用的通道；
+  // 成功时 picgo 主进程已经处理（gui 弹窗/消息中心），插件无需重复 emit。
+  // 所以 notify 函数有 success / fail 两种模式。
+  const notify = function (mode, ctx, guiApi, title, body) {
+    log(mode === "fail" ? "error" : "success", `[notify] ${title}: ${body}`);
+
+    if (mode === "fail") {
+      // 失败：ctx.emit（picgo 主窗口消息中心）+ showMessageBox 弹窗（最醒目）+ showNotification
+      try {
+        if (ctx && ctx.emit) {
+          ctx.emit("notification", { title, body });
+        }
+      } catch (e) {
+        log("error", "[notify] ctx.emit 失败：" + e.message);
+      }
+      try {
+        if (guiApi && guiApi.showMessageBox) {
+          guiApi.showMessageBox({
+            type: "error",
+            title: title,
+            message: body,
+          });
+        }
+      } catch (e) {
+        log("error", "[notify] showMessageBox 失败：" + e.message);
+      }
+    }
+
+    // 成功和失败都触发系统通知（依赖 OS 权限）
+    try {
+      if (guiApi && guiApi.showNotification) {
+        log("11111", guiApi.showNotification({ title, body }));
+      }
+    } catch (e) {
+      log("error", "[notify] showNotification 失败：" + e.message);
+    }
+  };
+
   const getHeaders = function () {
     return {
       "Content-Type": "application/json;charset=UTF-8",
@@ -100,13 +373,8 @@ module.exports = (ctx) => {
       delete imgList[i].buffer;
     }
 
-    // 上传结束后统一给一条汇总通知，避免每次上传都点弹窗打扰用户。
-    if (successCount > 0) {
-      ctx.emit("notification", {
-        title: "上传完成",
-        body: `成功 ${successCount} 张${failCount > 0 ? `，失败 ${failCount} 张` : ""}`,
-      });
-    }
+    // 上传成功：让 picgo 主进程自己处理（它会弹"上传成功"提示），
+    // 不重复 emit('notification')。这里只写日志 + 显示消息中心（如果失败）。
     if (fails.length > 0) {
       ctx.log.info("[上传操作]失败明细：" + JSON.stringify(fails));
     }
@@ -139,7 +407,9 @@ module.exports = (ctx) => {
   };
 
   // trigger delete file
-  const onRemove = async function (files) {
+  // trigger delete file
+  // 从 PicGo GUI 2.3.0 起，remove 事件的第二个参数是 guiApi（Electron 专属）
+  const onRemove = async function (files, guiApi) {
     const rms = files.filter((each) => each.type === uploadedName);
     if (rms.length === 0) {
       return;
@@ -162,10 +432,13 @@ module.exports = (ctx) => {
           "[删除操作]获取 sha 失败，跳过：" + each.imgUrl + " " + err.message
         );
         fails.push(`${each.fileName || each.imgUrl}: 获取 sha 失败`);
-        ctx.emit("notification", {
-          title: "删除失败",
-          body: `${each.fileName || each.imgUrl} 获取 sha 失败`,
-        });
+        notify(
+          "fail",
+          ctx,
+          guiApi,
+          "删除失败",
+          `${each.fileName || each.imgUrl} 获取 sha 失败`
+        );
         continue;
       }
 
@@ -202,21 +475,28 @@ module.exports = (ctx) => {
             err.message
         );
         fails.push(`${each.fileName || each.imgUrl}: ${err.message}`);
-        ctx.emit("notification", {
-          title: "删除失败",
-          body: `${each.fileName || each.imgUrl} ${err.message}`,
-        });
+        notify(
+          "fail",
+          ctx,
+          guiApi,
+          "删除失败",
+          `${each.fileName || each.imgUrl} ${err.message}`
+        );
       }
     }
 
-    // 汇总通知，避免重复打扰。
+    // 删除成功：用 guiApi.showNotification 通知（picgo 不自动处理此通知）
     if (successNames.length > 0) {
-      ctx.emit("notification", {
-        title: "删除完成",
-        body:
-          `成功同步删除 ${successNames.length} 个` +
-          (fails.length > 0 ? `，失败 ${fails.length} 个` : ""),
-      });
+      try {
+        if (guiApi && guiApi.showNotification) {
+          guiApi.showNotification({
+            title: "删除完成",
+            body: `成功同步删除 ${successNames.length} 个`,
+          });
+        }
+      } catch (e) {
+        log("error", "[删除操作]showNotification 失败：" + e.message);
+      }
     }
     if (fails.length > 0) {
       ctx.log.info("[删除操作]失败明细：" + JSON.stringify(fails));
@@ -327,5 +607,6 @@ module.exports = (ctx) => {
   return {
     uploader: "gitee",
     register,
+    guiMenu,
   };
 };
