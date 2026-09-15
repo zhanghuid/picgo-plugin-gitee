@@ -1,6 +1,6 @@
 {
   "name": "picgo-plugin-gitee",
-  "version": "2.1.3",
+  "version": "2.2.0",
   "description": "picgo uploader for gitee",
   "main": "src/index.js",
   "files": [
@@ -31,7 +31,8 @@
     "release:patch": "npm run bump:patch && npm publish",
     "release:minor": "npm run bump:minor && npm publish",
     "release:major": "npm run bump:major && npm publish",
-    "prepublishOnly": "node --check src/index.js"
+    "prepublishOnly": "node --check src/index.js",
+    "publish": "npm publish"
   },
   "keywords": [
     "picgo",
